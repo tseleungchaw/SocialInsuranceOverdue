@@ -1,47 +1,41 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"math"
-	"os"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
+	"unicode"
+
+	"github.com/360EntSecGroup-Skylar/excelize"
 )
 
 //Fees A collection of Fee
 type Fees []Fee
 
 //NewFees read fees from file
-func NewFees(file string) Fees {
-	f, err := os.Open(file)
-	if err != nil {
-		log.Fatalf("Can not open %s", file)
-	}
-	defer f.Close()
-
+func NewFees(file *excelize.File) Fees {
 	fees := Fees{}
+	rows := file.GetRows("每月缴费数据")
 
-	scanner := bufio.NewScanner(f)
-
-	for scanner.Scan() {
-		if strings.HasPrefix(scanner.Text(), "#") {
-			continue
-		}
-		strs := strings.Split(scanner.Text(), ",")
-		fee := Fee{}
-		yy, _ := strconv.Atoi(strs[0])
-		mm, _ := strconv.Atoi(strs[1])
-		fee.Date = time.Date(yy, time.Month(mm), 1, 0, 0, 0, 0, time.UTC)
-		paymentPercent, _ := strconv.ParseFloat(strs[3], 64)
-		institutionPercent, _ := strconv.ParseFloat(strs[4], 64)
-		base, _ := strconv.ParseFloat(strs[2], 64)
-		fee.Fee = base * paymentPercent * institutionPercent
-		fees = append(fees, fee)
+	if len(rows) == 0 {
+		log.Fatal("Can not find Sheet \"每月缴费数据\" in config.xlsx.")
 	}
+
+	for _, row := range rows {
+		if unicode.IsDigit(rune(row[0][0])) {
+			var fee Fee
+			fee.Date = time.Date(toInt(row[0]), time.Month(toInt(row[1])), 1, 0, 0, 0, 0, time.UTC)
+			payment, _ := strconv.ParseFloat(row[3], 64)
+			institution, _ := strconv.ParseFloat(row[4], 64)
+			base, _ := strconv.ParseFloat(row[2], 64)
+			fee.Fee = base * payment * institution
+			fees = append(fees, fee)
+		}
+	}
+
 	return fees
 }
 
@@ -89,8 +83,8 @@ type Durations []Duration
 
 //Duration premium term and payment date 缴费期间和真正缴费时间
 type Duration struct {
-	Start       time.Time
-	Stop        time.Time
+	StartDate   time.Time
+	StopDate    time.Time
 	PaymentDate time.Time
 }
 
@@ -131,26 +125,23 @@ type Rate struct {
 }
 
 //NewRates read overdue fine rates from file
-func NewRates(file string) Rates {
-	f, err := os.Open(file)
-	if err != nil {
-		log.Fatalf("Can not open %s", file)
+func NewRates(file *excelize.File) Rates {
+	var rates Rates
+
+	rows := file.GetRows("滞纳金费率")
+
+	if len(rows) == 0 {
+		log.Fatal("Can not find Sheet \"滞纳金费率\" in config.xlsx.")
 	}
-	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	rates := Rates{}
-
-	for scanner.Scan() {
-		if strings.HasPrefix(scanner.Text(), "#") {
-			continue
+	for _, row := range rows {
+		if unicode.IsDigit(rune(row[0][0])) {
+			var rate Rate
+			rate.Rate, _ = strconv.ParseFloat(row[0], 64)
+			rate.StartDate = time.Date(toInt(row[1][6:]), time.Month(toInt(row[1][:2])), toInt(row[1][3:5]), 0, 0, 0, 0, time.UTC)
+			rate.StopDate = time.Date(toInt(row[2][6:]), time.Month(toInt(row[2][:2])), toInt(row[2][3:5]), 24, 0, 0, 0, time.UTC)
+			rates = append(rates, rate)
 		}
-		strs := strings.Split(scanner.Text(), ",")
-		r := Rate{}
-		r.Rate, _ = strconv.ParseFloat(strs[0], 64)
-		r.StartDate = time.Date(toInt(strs[1][:4]), time.Month(toInt(strs[1][4:6])), toInt(strs[1][6:]), 0, 0, 0, 0, time.UTC)
-		r.StopDate = time.Date(toInt(strs[2][:4]), time.Month(toInt(strs[2][4:6])), toInt(strs[2][6:]), 24, 0, 0, 0, time.UTC)
-		rates = append(rates, r)
 	}
 
 	return rates
@@ -169,32 +160,31 @@ func (rates Rates) FilterByDuration(start, stop time.Time) Rates {
 }
 
 //genOverdueDays param: date starting to overdue, date the overdue fine is paid
-func genOverdueDays(overdue, paid string) float64 {
-	if overdue == paid {
+func genOverdueDays(overdue, paid time.Time) float64 {
+	// same day
+	if overdue.Year() == paid.Year() && overdue.Month() == paid.Month() && overdue.Day() == paid.Day() {
 		return 0.00
 	}
-	tOverdue := time.Date(toInt(overdue[:4]), time.Month(toInt(overdue[4:6])), toInt(overdue[6:]), 0, 0, 0, 0, time.UTC)
-	tPaid := time.Date(toInt(paid[:4]), time.Month(toInt(paid[4:6])), toInt(paid[6:]), 24, 0, 0, 0, time.UTC)
 
-	duration := tPaid.Sub(tOverdue).Hours() / 24
+	duration := paid.Sub(overdue).Hours() / 24
 	gracePeriod := 15
 
 	// same month
-	if tPaid.Year() == tOverdue.Year() && tPaid.Month() == tOverdue.Month() {
-		if tPaid.Day() >= gracePeriod {
-			return float64(tPaid.Day() - gracePeriod)
+	if paid.Year() == overdue.Year() && paid.Month() == overdue.Month() {
+		if paid.Day() >= gracePeriod {
+			return float64(paid.Day() - gracePeriod)
 		}
 		return 0.00
 	}
 
-	return duration - math.Abs(float64(gracePeriod-tOverdue.Day())) - 1.00
+	return duration - math.Abs(float64(gracePeriod-overdue.Day())) - 1.00
 }
 
 func genOverdueFines(durations Durations, fees Fees, rates Rates) float64 {
 	fines := 0.00
 	for _, duration := range durations {
 		fine := 0.00
-		for i := duration.Start; i.Before(duration.Stop); i = i.AddDate(0, 1, 0) {
+		for i := duration.StartDate; i.Before(duration.StopDate); i = i.AddDate(0, 1, 0) {
 			a := genMonthlyOverdueFine(i, duration.PaymentDate, fees, rates)
 			fmt.Println(a)
 			fine += a
@@ -210,24 +200,24 @@ func genMonthlyOverdueFine(overdueDate, paymentDate time.Time, fees Fees, rates 
 	fee := fees.GetFeeForMonth(overdueDate)
 	r := rates.FilterByDuration(overdueDate, paymentDate)
 	if len(r) < 2 {
-		return fee * r[0].Rate * genOverdueDays(overdueDate.Format("20060102"), paymentDate.Format("20060102"))
+		return fee * r[0].Rate * genOverdueDays(overdueDate, paymentDate)
 	}
 	// segment
 	d := 0.00
 	for i, rate := range r {
 		if i == 0 {
-			days := genOverdueDays(overdueDate.Format("20060102"), rate.StopDate.Format("20060102"))
+			days := genOverdueDays(overdueDate, rate.StopDate)
 			fine += fee * rate.Rate * days
 			d = days
 			continue
 		}
-		stop := time.Time{}
+		var stop time.Time
 		if i == len(r)-1 {
 			stop = paymentDate
 		} else {
 			stop = rate.StopDate
 		}
-		days := genOverdueDays(overdueDate.Format("20060102"), stop.Format("20060102"))
+		days := genOverdueDays(overdueDate, stop)
 		fine += fee * rate.Rate * (days - d)
 		d = days
 	}
@@ -236,7 +226,11 @@ func genMonthlyOverdueFine(overdueDate, paymentDate time.Time, fees Fees, rates 
 
 func main() {
 	d := Durations{NewDuration("20090501", "20110430", "20180831")}
-	fees := NewFees("base.txt")
-	rates := NewRates("rate.txt")
+	f, err := excelize.OpenFile("config.xlsx")
+	if err != nil {
+		log.Fatalf("Can not open config.xlsx.")
+	}
+	fees := NewFees(f)
+	rates := NewRates(f)
 	fmt.Println(genOverdueFines(d, fees, rates))
 }
