@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"math"
 	"sort"
@@ -10,6 +9,8 @@ import (
 	"unicode"
 
 	"github.com/360EntSecGroup-Skylar/excelize"
+	"github.com/lxn/walk"
+	. "github.com/lxn/walk/declarative"
 )
 
 //Fees A collection of Fee
@@ -86,15 +87,6 @@ type Duration struct {
 	StartDate   time.Time
 	StopDate    time.Time
 	PaymentDate time.Time
-}
-
-//NewDuration A struct of the start & stop date of assumed premium term, and the actual payment date. 费款所属期间和真正缴费日期
-func NewDuration(start, stop, payment string) Duration {
-	return Duration{
-		time.Date(toInt(start[:4]), time.Month(toInt(start[4:6])), toInt(start[6:]), 0, 0, 0, 0, time.UTC),
-		time.Date(toInt(stop[:4]), time.Month(toInt(stop[4:6])), toInt(stop[6:]), 24, 0, 0, 0, time.UTC),
-		time.Date(toInt(payment[:4]), time.Month(toInt(payment[4:6])), toInt(payment[6:]), 24, 0, 0, 0, time.UTC),
-	}
 }
 
 func toInt(s string) int {
@@ -185,9 +177,7 @@ func genOverdueFines(durations Durations, fees Fees, rates Rates) float64 {
 	for _, duration := range durations {
 		fine := 0.00
 		for i := duration.StartDate; i.Before(duration.StopDate); i = i.AddDate(0, 1, 0) {
-			a := genMonthlyOverdueFine(i, duration.PaymentDate, fees, rates)
-			fmt.Println(a)
-			fine += a
+			fine += genMonthlyOverdueFine(i, duration.PaymentDate, fees, rates)
 		}
 		fines += fine
 	}
@@ -225,12 +215,57 @@ func genMonthlyOverdueFine(overdueDate, paymentDate time.Time, fees Fees, rates 
 }
 
 func main() {
-	d := Durations{NewDuration("20090501", "20110430", "20180831")}
 	f, err := excelize.OpenFile("config.xlsx")
 	if err != nil {
 		log.Fatalf("Can not open config.xlsx.")
 	}
 	fees := NewFees(f)
 	rates := NewRates(f)
-	fmt.Println(genOverdueFines(d, fees, rates))
+
+	var start, stop, paid time.Time
+
+	var startDate, stopDate, paidDate *walk.DateEdit
+	var display, result *walk.TextEdit
+	MainWindow{
+		Title:  "税费款滞纳金计算程序",
+		Size:   Size{600, 400},
+		Layout: VBox{},
+		Children: []Widget{
+			HSplitter{
+				Children: []Widget{
+					TextLabel{Text: "税费款所属期起"},
+					DateEdit{AssignTo: &startDate,
+						OnDateChanged: func() {
+							start = startDate.Date()
+						},
+					},
+					TextLabel{Text: "税费款所属期止"},
+					DateEdit{AssignTo: &stopDate,
+						OnDateChanged: func() {
+							stop = stopDate.Date().AddDate(0, 0, 1)
+						},
+					},
+					TextLabel{Text: "入库日期"},
+					DateEdit{AssignTo: &paidDate,
+						OnDateChanged: func() {
+							paid = paidDate.Date().AddDate(0, 0, 1)
+						},
+					},
+				},
+			},
+			TextLabel{Text: "过程界面"},
+			TextEdit{AssignTo: &display, ReadOnly: true},
+			TextLabel{Text: "结果界面"},
+			TextEdit{AssignTo: &result, ReadOnly: true},
+			PushButton{
+				Text: "计算",
+				OnClicked: func() {
+					display.SetText("税费款所属期起:\t" + start.Format("20060102") + "\t\t税费款所属期止:\t" + stop.AddDate(0, 0, -1).Format("20060102") + "\t\t入库日期:\t" + paid.AddDate(0, 0, -1).Format("20060102"))
+					duration := Durations{Duration{start, stop, paid}}
+					result.SetText("滞纳天数:\t" + strconv.FormatFloat(genOverdueDays(start, paid), 'f', -1, 64) + "\t\t累计滞纳金:\t" + strconv.FormatFloat(genOverdueFines(duration, fees, rates), 'f', -1, 64))
+				},
+			},
+			TextLabel{Text: "Copyright by Tse Leung Chaw (122165974@qq.com), 2019"},
+		},
+	}.Run()
 }

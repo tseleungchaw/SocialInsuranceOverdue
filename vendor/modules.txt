@@ -1,4 +1,13 @@
 # github.com/360EntSecGroup-Skylar/excelize v1.4.1
 github.com/360EntSecGroup-Skylar/excelize
+# github.com/lxn/walk v0.0.0-20191024161928-0ee7d2cded97
+github.com/lxn/walk
+github.com/lxn/walk/declarative
+# github.com/lxn/win v0.0.0-20191024121223-cc00c7492fe1
+github.com/lxn/win
 # github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826
 github.com/mohae/deepcopy
+# golang.org/x/sys v0.0.0-20191026070338-33540a1f6037
+golang.org/x/sys/windows
+# gopkg.in/Knetic/govaluate.v3 v3.0.0
+gopkg.in/Knetic/govaluate.v3
