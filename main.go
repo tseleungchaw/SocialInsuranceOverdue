@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 	"unicode"
 
@@ -223,34 +225,96 @@ func main() {
 	rates := NewRates(f)
 
 	var start, stop, paid time.Time
-
 	var startDate, stopDate, paidDate *walk.DateEdit
 	var display, result *walk.TextEdit
+	var taxMode bool
+	var graceDay, factor *walk.NumberEdit
+	var grace, num float64
+	var file *walk.LineEdit
+	//var file string
 	MainWindow{
 		Title:  "税费款滞纳金计算程序",
-		Size:   Size{600, 400},
+		MinSize:   Size{600, 400},
 		Layout: VBox{},
+		OnDropFiles: func(files []string) {
+			file.SetText(strings.Join(files, "\r\n"))
+		},
 		Children: []Widget{
-			HSplitter{
+			Composite{
+				Layout: Grid{Columns: 4},
 				Children: []Widget{
-					TextLabel{Text: "税费款所属期起"},
+					RadioButtonGroupBox{
+						ColumnSpan: 4,
+						Title: "运算模式",
+						Layout: HBox{},
+						Buttons: []RadioButton{
+							{Text: "税款模式(下月豁免期后产生滞纳金)",
+								OnClicked: func() {
+									taxMode = true
+								},
+							},
+							{Text: "费款模式(当月豁免期后产生滞纳金)",
+								OnClicked: func() {
+									taxMode = false
+									fmt.Println(taxMode)
+								},
+							},
+						},
+					},
+					Label{Text: "豁免期"},
+          NumberEdit{AssignTo: &graceDay,
+						Suffix: "天",
+						MinValue: 0,
+						MaxValue: 9999,
+						Increment: 1,
+						Value: 15.00,
+						OnValueChanged: func() {
+							grace = graceDay.Value()
+							fmt.Println(grace)
+						},
+					},
+					Label{Text: "人数"},
+					NumberEdit{AssignTo: &factor,
+						Suffix: "人",
+						MinValue: 1,
+						MaxValue: 9999,
+						Increment: 1,
+						OnValueChanged: func() {
+							num = factor.Value()
+							fmt.Println(num)
+						},
+					},
+					Label{Text: "税费款所属期起"},
 					DateEdit{AssignTo: &startDate,
 						OnDateChanged: func() {
 							start = startDate.Date()
 						},
 					},
-					TextLabel{Text: "税费款所属期止"},
+					Label{Text: "税费款所属期止"},
 					DateEdit{AssignTo: &stopDate,
 						OnDateChanged: func() {
 							stop = stopDate.Date().AddDate(0, 0, 1)
 						},
 					},
-					TextLabel{Text: "入库日期"},
+					Label{Text: "入库日期"},
 					DateEdit{AssignTo: &paidDate,
 						OnDateChanged: func() {
 							paid = paidDate.Date().AddDate(0, 0, 1)
 						},
 					},
+				},
+			},
+			Composite{
+				Layout: Grid{Columns: 2},
+				Children: []Widget{
+           Label{Text: "从 excel 导入"},
+					 HSpacer{
+						 ColumnSpan: 1,
+					 },
+					 LineEdit{AssignTo:&file},
+					 PushButton{
+						 Text: "导入",
+					 },
 				},
 			},
 			TextLabel{Text: "过程界面"},
